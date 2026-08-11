@@ -1,6 +1,6 @@
 # Cursor Usage Dashboard
 
-Lightweight Cursor Canvas dashboard for `usage-events-*.csv` exports. Sparse KPIs, one daily cost trend, model mix, and a top-events table — nothing else.
+Editorial Cursor Canvas dashboard for `usage-events-*.csv` exports — Apple-like section rhythm with restored richness: KPIs, daily trends, model/token mix, efficiency, peak-day deep dive, top events, and daily breakdown.
 
 ## Privacy
 
