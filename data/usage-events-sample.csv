@@ -1,0 +1,9 @@
+Date,Cloud Agent ID,Automation ID,Kind,Model,Max Mode,Input (w/ Cache Write),Input (w/o Cache Write),Cache Read,Output Tokens,Total Tokens,Cost
+"2026-08-10T14:22:11.000Z","","","express","cursor-grok-4.5-medium","No","0","12000","180000","800","192800","0.42"
+"2026-08-10T11:05:44.000Z","","","express","composer-2.5","No","0","45000","220000","3200","268200","0.18"
+"2026-08-09T18:40:02.000Z","","","express","cursor-grok-4.5-medium","No","0","8800","95000","640","104440","0.21"
+"2026-08-09T09:12:55.000Z","","","express","composer-2.5","No","0","31000","140000","2100","173100","0.12"
+"2026-08-08T16:33:19.000Z","","","express","cursor-grok-4.5-medium","No","0","15200","410000","1900","427100","0.55"
+"2026-08-08T10:01:07.000Z","","","free","composer-2.5-fast","No","0","22000","88000","900","110900","0.09"
+"2026-08-07T20:15:41.000Z","","","express","cursor-grok-4.5-medium","No","0","6700","52000","410","59110","0.14"
+"2026-08-07T08:48:26.000Z","","","Errored, No Charge","cursor-grok-4.5-medium","No","","","","","","Free"

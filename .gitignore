@@ -1,0 +1,10 @@
+node_modules/
+.DS_Store
+Thumbs.db
+*.log
+.env
+.env.*
+
+# Personal Cursor usage exports (billing data) — keep local only
+data/usage-events-*.csv
+!data/usage-events-sample.csv

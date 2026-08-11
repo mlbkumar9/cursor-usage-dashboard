@@ -1,0 +1,8 @@
+{
+  "name": "cursor-usage-dashboard",
+  "private": true,
+  "description": "Lightweight Cursor usage dashboard (CSV exports + Canvas)",
+  "scripts": {
+    "sync-canvas": "node scripts/sync-canvas.mjs"
+  }
+}
