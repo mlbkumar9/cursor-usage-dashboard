@@ -2,25 +2,17 @@ import {
   BarChart,
   Button,
   Callout,
-  Card,
-  CardBody,
-  CardHeader,
   Divider,
   Grid,
   H1,
   H2,
-  H3,
   LineChart,
   PieChart,
-  Pill,
-  Row,
   Select,
-  Spacer,
   Stack,
   Stat,
   Table,
   Text,
-  UsageBar,
   useCanvasAction,
   useCanvasState,
   useHostTheme,
@@ -101,11 +93,8 @@ type Dashboard = {
   peakHours: HourAgg[];
   peakHourSummary: string;
   topEvents: CsvRow[];
-  modelSeries: { name: string; data: number[] }[];
   notes: string[];
 };
-
-const USAGE_COLORS = ["blue", "orange", "green", "yellow", "gray"] as const;
 
 function defaultFilename(): string {
   const usage = CSV_CATALOG.filter((c) =>
@@ -407,15 +396,6 @@ function analyze(
     }
   }
 
-  const topModels = models.slice(0, 5);
-  const modelSeries = topModels.map((m) => ({
-    name: shortModel(m.model),
-    data: days.map((d) => {
-      const v = dayModelCost.get(d.date)?.get(m.model) ?? 0;
-      return Math.round(v * 100) / 100;
-    }),
-  }));
-
   const topEvents = [...billed]
     .sort((a, b) => numOr0(b["Cost"]) - numOr0(a["Cost"]))
     .slice(0, 8);
@@ -451,7 +431,6 @@ function analyze(
       peakHours,
       peakHourSummary,
       topEvents,
-      modelSeries,
       notes,
     },
   };
@@ -463,17 +442,29 @@ function eventWhen(iso: string): string {
   return `${monthDay(d)} ${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
 }
 
-function SectionLabel({
+function Band({
+  kicker,
   title,
   caption,
 }: {
+  kicker?: string;
   title: string;
   caption: string;
 }) {
   return (
-    <Stack gap={6}>
-      <H2>{title}</H2>
-      <Text tone="tertiary" size="small">
+    <Stack gap={8}>
+      {kicker ? (
+        <Text
+          tone="tertiary"
+          size="small"
+          weight="medium"
+          style={{ letterSpacing: "0.12em", textTransform: "uppercase" }}
+        >
+          {kicker}
+        </Text>
+      ) : null}
+      <H2 style={{ letterSpacing: "-0.03em" }}>{title}</H2>
+      <Text tone="tertiary" size="small" style={{ maxWidth: 520, lineHeight: 1.5 }}>
         {caption}
       </Text>
     </Stack>
@@ -510,28 +501,34 @@ export default function CursorUsageOverview() {
   const range = data?.rangeLabel ?? "—";
   const avgDayCost =
     data && data.days.length > 0 ? data.totalCost / data.days.length : 0;
+  const leadModel = data?.models[0];
+  const leanModel =
+    data && data.models.length > 0
+      ? [...data.models].sort((a, b) => a.costPerM - b.costPerM)[0]
+      : null;
+  const leadKind = data?.kinds[0];
 
   const tokenMixSlices = data
     ? [
         {
-          label: `Cache read · ${pct(data.tokenMix.cacheRead, data.totalTokens).toFixed(1)}%`,
+          label: "Cache read",
           value: data.tokenMix.cacheRead,
           tone: "info" as const,
         },
         {
-          label: `Input · ${pct(data.tokenMix.input, data.totalTokens).toFixed(1)}%`,
+          label: "Input",
           value: data.tokenMix.input,
           tone: "neutral" as const,
         },
         {
-          label: `Output · ${pct(data.tokenMix.output, data.totalTokens).toFixed(1)}%`,
+          label: "Output",
           value: data.tokenMix.output,
           tone: "warning" as const,
         },
         ...(data.tokenMix.cacheWrite > 0
           ? [
               {
-                label: `Cache write · ${pct(data.tokenMix.cacheWrite, data.totalTokens).toFixed(1)}%`,
+                label: "Cache write",
                 value: data.tokenMix.cacheWrite,
                 tone: "success" as const,
               },
@@ -540,540 +537,308 @@ export default function CursorUsageOverview() {
       ].filter((s) => s.value > 0)
     : [];
 
+  const hairline = `1px solid ${theme.stroke.tertiary}`;
+
   return (
     <Stack
-      gap={40}
+      gap={0}
       style={{
-        padding: "40px 44px 48px",
-        maxWidth: 1040,
+        padding: "64px 72px 80px",
+        maxWidth: 920,
         background: theme.bg.editor,
       }}
     >
-      {/* Hero — product title + quiet meta */}
-      <Stack gap={20}>
-        <Stack gap={8}>
+      <Grid columns="1fr auto" gap={32} align="start">
+        <Stack gap={12}>
           <Text
             tone="tertiary"
             size="small"
             weight="medium"
-            style={{ letterSpacing: "0.08em", textTransform: "uppercase" }}
+            style={{ letterSpacing: "0.14em", textTransform: "uppercase" }}
           >
             Cursor
           </Text>
-          <H1 style={{ letterSpacing: "-0.02em" }}>Usage</H1>
-          <Text tone="secondary" style={{ maxWidth: 520, lineHeight: 1.5 }}>
-            Cost, tokens, and model mix from local usage-events exports —
-            editorial overview, not a billing console.
+          <H1 style={{ letterSpacing: "-0.04em" }}>Usage</H1>
+          <Text tone="secondary" style={{ maxWidth: 440, lineHeight: 1.55 }}>
+            What this export spent, and where.
           </Text>
         </Stack>
-
-        <Row gap={12} align="center" justify="space-between" wrap>
-          <Row gap={10} align="center" wrap>
-            <Text tone="tertiary" size="small">
-              Source
-            </Text>
-            <Select
-              value={entry?.filename ?? ""}
-              onChange={setSelectedFile}
-              options={options}
-              placeholder="Choose a usage CSV…"
-              style={{ minWidth: 280 }}
-            />
-            {entry ? (
-              <Button
-                variant="ghost"
-                onClick={() =>
-                  dispatch({
-                    type: "openFile",
-                    path: `data/${entry.filename}`,
-                  })
-                }
-              >
-                Open CSV
-              </Button>
-            ) : null}
-          </Row>
-          {data ? (
-            <Row gap={8} align="center" wrap>
-              <Pill active size="sm">
-                {range}
-              </Pill>
-              <Text tone="quaternary" size="small">
-                {data.allEvents} events · {source}
-              </Text>
-            </Row>
+        <Stack gap={8} style={{ minWidth: 260, paddingTop: 28 }}>
+          <Text
+            tone="tertiary"
+            size="small"
+            style={{ letterSpacing: "0.08em", textTransform: "uppercase" }}
+          >
+            Source
+          </Text>
+          <Select
+            value={entry?.filename ?? ""}
+            onChange={setSelectedFile}
+            options={options}
+            placeholder="Choose a usage CSV…"
+            style={{ minWidth: 260 }}
+          />
+          {entry ? (
+            <Button
+              variant="ghost"
+              onClick={() =>
+                dispatch({
+                  type: "openFile",
+                  path: `data/${entry.filename}`,
+                })
+              }
+            >
+              Open CSV
+            </Button>
           ) : null}
-        </Row>
-      </Stack>
+        </Stack>
+      </Grid>
 
       {!result.ok ? (
-        <Callout tone="danger" title="Could not load usage data">
-          {result.error} Pick another file from the Source dropdown, or run{" "}
-          <Text weight="semibold">npm run sync-canvas</Text> after adding a CSV.
-        </Callout>
+        <>
+          <Divider style={{ marginTop: 48, marginBottom: 32 }} />
+          <Callout tone="danger" title="Could not load usage data">
+            {result.error} Pick another file from Source, or run `npm run sync-canvas`
+            after adding a CSV.
+          </Callout>
+        </>
       ) : null}
 
       {data && data.billedEvents === 0 ? (
-        <Callout tone="warning" title="No billed events">
-          {source} parsed successfully but has no billable rows after excluding
-          Errored, No Charge.
-        </Callout>
+        <>
+          <Divider style={{ marginTop: 48, marginBottom: 32 }} />
+          <Callout tone="warning" title="No billed events">
+            {source} parsed, but every row is Kind "Errored, No Charge."
+          </Callout>
+        </>
       ) : null}
 
       {data && data.billedEvents > 0 ? (
         <>
-          {/* KPI strip */}
-          <Grid columns={4} gap={20}>
+          <Stack gap={8} style={{ marginTop: 28 }}>
+            <Text tone="quaternary" size="small">
+              {range} · {data.billedEvents} billed
+              {data.erroredEvents > 0 ? ` · ${data.erroredEvents} errored` : ""} ·{" "}
+              {source}
+            </Text>
+          </Stack>
+
+          <Divider style={{ marginTop: 48, marginBottom: 48 }} />
+
+          <Grid columns={4} gap={32}>
             <Stat value={formatMoney(data.totalCost)} label="Total cost" />
-            <Stat value={formatTokens(data.totalTokens)} label="Total tokens" />
+            <Stat value={formatTokens(data.totalTokens)} label="Tokens" />
             <Stat value={String(data.billedEvents)} label="Billed events" />
             <Stat
               value={data.peakDay ? formatMoney(data.peakDay.cost) : "—"}
-              label={
-                data.peakDay
-                  ? `Peak · ${data.peakDay.label}`
-                  : "Peak day"
-              }
-              tone="warning"
+              label={data.peakDay ? `Peak · ${data.peakDay.label}` : "Peak day"}
             />
           </Grid>
+          <Text
+            tone="tertiary"
+            size="small"
+            style={{ marginTop: 20, maxWidth: 640, lineHeight: 1.55 }}
+          >
+            {formatMoney(avgDayCost)} average day
+            {leadModel
+              ? ` · ${shortModel(leadModel.model)} is ${pct(leadModel.cost, data.totalCost).toFixed(0)}% of spend`
+              : ""}
+            {` · cache reads ${data.cacheShare.toFixed(0)}% of tokens`}
+            {leadKind ? ` · ${leadKind.kind}` : ""}
+            {` · ${formatMoney(data.avgCost, 3)} per event`}.
+          </Text>
 
-          {data.peakDay && data.peakShare >= 35 ? (
-            <Callout tone="neutral" title={`${data.peakDay.label} carries most of the spend`}>
-              {data.peakDay.label} is {formatMoney(data.peakDay.cost)} of{" "}
-              {formatMoney(data.totalCost)} ({data.peakShare.toFixed(0)}%) across{" "}
-              {data.peakDay.events} events. Cache reads are{" "}
-              {data.cacheShare.toFixed(0)}% of token volume. Average{" "}
-              {formatMoney(data.avgCost, 3)} per billed event.
-            </Callout>
-          ) : (
-            <Callout tone="neutral" title="Export snapshot">
-              Cache reads are {data.cacheShare.toFixed(0)}% of token volume.
-              Average {formatMoney(data.avgCost, 3)} per billed event ·{" "}
-              {data.days.length} active day{data.days.length === 1 ? "" : "s"}.
-            </Callout>
-          )}
+          <Divider style={{ marginTop: 56, marginBottom: 48 }} />
 
-          {/* Primary trend */}
-          <Stack gap={16}>
-            <SectionLabel
-              title="Daily trend"
-              caption={`Cost and volume by calendar day · Source: ${source} · ${range}`}
+          <Stack gap={24}>
+            <Band
+              kicker="01"
+              title="Daily cost"
+              caption={`Cost ($) by calendar day. Average day ${formatMoney(avgDayCost)}. Source: ${source} · ${range}.`}
             />
-            <Grid columns="1.45fr 1fr" gap={28} align="start">
-              <Stack gap={10}>
-                <Stack gap={4}>
-                  <H3>Daily cost</H3>
-                  <Text tone="tertiary" size="small">
-                    Cost ($) · Date · avg day {formatMoney(avgDayCost)}
-                  </Text>
-                </Stack>
-                <LineChart
-                  categories={data.days.map((d) => d.label)}
-                  series={[
-                    {
-                      name: "Cost ($)",
-                      data: data.days.map((d) => Math.round(d.cost * 100) / 100),
-                      tone: "info",
-                    },
-                  ]}
-                  valuePrefix="$"
-                  height={260}
-                  fill
-                  showValues={data.days.length <= 10}
-                  referenceLines={[
-                    {
-                      value: avgDayCost,
-                      label: "Avg day",
-                      tone: "neutral",
-                    },
-                  ]}
-                />
-              </Stack>
-
-              <Stack gap={22}>
-                <Stack gap={10}>
-                  <Stack gap={4}>
-                    <H3>Daily tokens</H3>
-                    <Text tone="tertiary" size="small">
-                      Tokens (millions) · Date
-                    </Text>
-                  </Stack>
-                  <BarChart
-                    categories={data.days.map((d) => d.label)}
-                    series={[
-                      {
-                        name: "Tokens (M)",
-                        data: data.days.map(
-                          (d) => Math.round((d.tokens / 1_000_000) * 100) / 100,
-                        ),
-                        tone: "neutral",
-                      },
-                    ]}
-                    height={160}
-                    valueSuffix="M"
-                    showValues={data.days.length <= 10}
-                  />
-                </Stack>
-                <Stack gap={10}>
-                  <Stack gap={4}>
-                    <H3>Events per day</H3>
-                    <Text tone="tertiary" size="small">
-                      Event count · Date
-                    </Text>
-                  </Stack>
-                  <BarChart
-                    categories={data.days.map((d) => d.label)}
-                    series={[
-                      {
-                        name: "Events",
-                        data: data.days.map((d) => d.events),
-                      },
-                    ]}
-                    height={140}
-                    showValues={data.days.length <= 10}
-                  />
-                </Stack>
-              </Stack>
-            </Grid>
+            <LineChart
+              categories={data.days.map((d) => d.label)}
+              series={[
+                {
+                  name: "Cost ($)",
+                  data: data.days.map((d) => Math.round(d.cost * 100) / 100),
+                  tone: "info",
+                },
+              ]}
+              valuePrefix="$"
+              height={240}
+              fill
+              showValues={data.days.length <= 8}
+              referenceLines={[
+                { value: avgDayCost, label: "Avg", tone: "neutral" },
+              ]}
+            />
           </Stack>
 
-          <Divider />
+          <Divider style={{ marginTop: 56, marginBottom: 48 }} />
 
-          {/* Mix */}
-          <Stack gap={16}>
-            <SectionLabel
-              title="Mix"
-              caption={`Model spend and token composition · Source: ${source}`}
-            />
-            <Grid columns={2} gap={32} align="start">
-              <Stack gap={14}>
-                <Stack gap={4}>
-                  <H3>Cost by model</H3>
-                  <Text tone="tertiary" size="small">
-                    Share of {formatMoney(data.totalCost)} total spend
-                  </Text>
-                </Stack>
-                <PieChart
-                  data={data.models.map((m) => ({
-                    label: `${shortModel(m.model)} · ${formatMoney(m.cost)}`,
-                    value: Math.round(m.cost * 100) / 100,
-                  }))}
-                  donut
-                  size={220}
-                />
-                <UsageBar
-                  total={data.totalCost}
-                  topLeftLabel="Spend mix"
-                  topRightLabel={formatMoney(data.totalCost)}
-                  segments={data.models.map((m, i) => ({
-                    id: m.model,
-                    value: m.cost,
-                    color: USAGE_COLORS[i % USAGE_COLORS.length],
-                  }))}
-                />
-                <Text tone="quaternary" size="small">
-                  {data.models
-                    .map(
-                      (m, i) =>
-                        `${USAGE_COLORS[i % USAGE_COLORS.length]}: ${shortModel(m.model)}`,
-                    )
-                    .join(" · ")}
+          <Grid columns={2} gap={48} align="start">
+            <Stack gap={20}>
+              <Band
+                kicker="02"
+                title="Models"
+                caption={`Share of ${formatMoney(data.totalCost)}. Bars are cost ($).`}
+              />
+              <BarChart
+                categories={data.models.map((m) => shortModel(m.model))}
+                series={[
+                  {
+                    name: "Cost ($)",
+                    data: data.models.map((m) => Math.round(m.cost * 100) / 100),
+                    tone: "neutral",
+                  },
+                ]}
+                horizontal
+                valuePrefix="$"
+                height={Math.min(220, 56 + data.models.length * 36)}
+                showValues
+              />
+              <Table
+                framed={false}
+                striped={false}
+                headers={["Model", "Events", "Cost", "$/1M"]}
+                rows={data.models.map((m) => [
+                  shortModel(m.model),
+                  String(m.events),
+                  formatMoney(m.cost),
+                  formatMoney(m.costPerM),
+                ])}
+                columnAlign={["left", "right", "right", "right"]}
+              />
+              {leadModel && leanModel ? (
+                <Text tone="tertiary" size="small" style={{ lineHeight: 1.5 }}>
+                  {shortModel(leanModel.model)} is the most token-efficient at{" "}
+                  {formatMoney(leanModel.costPerM)} / 1M.
                 </Text>
-              </Stack>
+              ) : null}
+            </Stack>
 
-              <Stack gap={14}>
-                <Stack gap={4}>
-                  <H3>Token composition</H3>
-                  <Text tone="tertiary" size="small">
-                    Cache vs input vs output across{" "}
-                    {formatTokens(data.totalTokens)} billed tokens
-                  </Text>
-                </Stack>
-                {tokenMixSlices.length > 0 ? (
-                  <PieChart data={tokenMixSlices} donut size={220} />
-                ) : null}
-                <Table
-                  headers={["Type", "Tokens", "Share"]}
-                  rows={[
-                    [
-                      "Cache read",
-                      formatTokens(data.tokenMix.cacheRead),
-                      `${pct(data.tokenMix.cacheRead, data.totalTokens).toFixed(1)}%`,
-                    ],
-                    [
-                      "Input (w/o cache write)",
-                      formatTokens(data.tokenMix.input),
-                      `${pct(data.tokenMix.input, data.totalTokens).toFixed(1)}%`,
-                    ],
-                    ...(data.tokenMix.cacheWrite > 0
-                      ? [
-                          [
-                            "Input (w/ cache write)",
-                            formatTokens(data.tokenMix.cacheWrite),
-                            `${pct(data.tokenMix.cacheWrite, data.totalTokens).toFixed(1)}%`,
-                          ],
-                        ]
-                      : []),
-                    [
-                      "Output",
-                      formatTokens(data.tokenMix.output),
-                      `${pct(data.tokenMix.output, data.totalTokens).toFixed(1)}%`,
-                    ],
-                  ]}
-                  columnAlign={["left", "right", "right"]}
-                  striped
-                />
-              </Stack>
-            </Grid>
-          </Stack>
-
-          <Divider />
-
-          {/* Efficiency / kind */}
-          <Stack gap={16}>
-            <SectionLabel
-              title="Efficiency"
-              caption={`Kind mix and per-model cost intensity · Source: ${source}`}
-            />
-            <Grid columns="1fr 1.35fr" gap={28} align="start">
-              <Stack gap={12}>
-                <Stack gap={4}>
-                  <H3>Kind mix</H3>
-                  <Text tone="tertiary" size="small">
-                    Cost share by event kind
-                  </Text>
-                </Stack>
-                <UsageBar
-                  total={data.totalCost}
-                  topLeftLabel="Kind spend"
-                  topRightLabel={formatMoney(data.totalCost)}
-                  segments={data.kinds.map((k, i) => ({
-                    id: k.kind,
-                    value: k.cost,
-                    color: USAGE_COLORS[i % USAGE_COLORS.length],
-                  }))}
-                />
-                <Table
-                  headers={["Kind", "Events", "Cost", "Share"]}
-                  rows={data.kinds.map((k) => [
-                    k.kind,
-                    String(k.events),
-                    formatMoney(k.cost),
-                    `${k.share.toFixed(1)}%`,
-                  ])}
-                  columnAlign={["left", "right", "right", "right"]}
-                  striped
-                />
-              </Stack>
-
-              <Stack gap={12}>
-                <Stack gap={4}>
-                  <H3>Model efficiency</H3>
-                  <Text tone="tertiary" size="small">
-                    $/1M tokens uses Total Tokens from the export
-                  </Text>
-                </Stack>
-                <Table
-                  headers={[
-                    "Model",
-                    "Events",
-                    "Cost",
-                    "Tokens",
-                    "Avg $/evt",
-                    "$/1M tok",
-                  ]}
-                  rows={data.models.map((m) => [
-                    shortModel(m.model),
-                    String(m.events),
-                    formatMoney(m.cost),
-                    formatTokens(m.tokens),
-                    formatMoney(m.avgCost, 3),
-                    formatMoney(m.costPerM),
-                  ])}
-                  columnAlign={[
-                    "left",
-                    "right",
-                    "right",
-                    "right",
-                    "right",
-                    "right",
-                  ]}
-                  striped
-                />
-                {data.models.length > 0 ? (
-                  <Text tone="secondary" size="small">
-                    {(() => {
-                      const best = [...data.models].sort(
-                        (a, b) => a.costPerM - b.costPerM,
-                      )[0];
-                      const lead = data.models[0];
-                      return `${shortModel(best.model)} is most token-efficient (${formatMoney(best.costPerM)} / 1M). ${shortModel(lead.model)} leads spend at ${formatMoney(lead.cost)} (${pct(lead.cost, data.totalCost).toFixed(0)}%).`;
-                    })()}
-                  </Text>
-                ) : null}
-              </Stack>
-            </Grid>
-          </Stack>
-
-          {data.modelSeries.length > 1 && data.days.length > 1 ? (
-            <>
-              <Divider />
-              <Stack gap={16}>
-                <SectionLabel
-                  title="Cost by model over time"
-                  caption={`Stacked cost ($) by model and day · Source: ${source} · ${range}`}
-                />
-                <BarChart
-                  categories={data.days.map((d) => d.label)}
-                  series={data.modelSeries}
-                  stacked
-                  valuePrefix="$"
-                  height={240}
-                />
-              </Stack>
-            </>
-          ) : null}
+            <Stack gap={20}>
+              <Band
+                kicker="03"
+                title="Tokens"
+                caption={`${formatTokens(data.totalTokens)} billed tokens. Cache vs input vs output.`}
+              />
+              {tokenMixSlices.length > 0 ? (
+                <PieChart data={tokenMixSlices} donut size={180} />
+              ) : null}
+              <Table
+                framed={false}
+                striped={false}
+                headers={["Type", "Tokens", "Share"]}
+                rows={[
+                  [
+                    "Cache read",
+                    formatTokens(data.tokenMix.cacheRead),
+                    `${pct(data.tokenMix.cacheRead, data.totalTokens).toFixed(1)}%`,
+                  ],
+                  [
+                    "Input",
+                    formatTokens(data.tokenMix.input),
+                    `${pct(data.tokenMix.input, data.totalTokens).toFixed(1)}%`,
+                  ],
+                  ...(data.tokenMix.cacheWrite > 0
+                    ? [
+                        [
+                          "Cache write",
+                          formatTokens(data.tokenMix.cacheWrite),
+                          `${pct(data.tokenMix.cacheWrite, data.totalTokens).toFixed(1)}%`,
+                        ],
+                      ]
+                    : []),
+                  [
+                    "Output",
+                    formatTokens(data.tokenMix.output),
+                    `${pct(data.tokenMix.output, data.totalTokens).toFixed(1)}%`,
+                  ],
+                ]}
+                columnAlign={["left", "right", "right"]}
+              />
+            </Stack>
+          </Grid>
 
           {data.peakDay && data.peakHours.length > 0 ? (
             <>
-              <Divider />
-              <Card>
-                <CardHeader
-                  trailing={
-                    <Pill size="sm">
-                      {data.peakShare.toFixed(0)}% of spend
-                    </Pill>
-                  }
-                >
-                  Peak day — {data.peakDay.label}
-                </CardHeader>
-                <CardBody>
-                  <Stack gap={18}>
-                    <Row gap={20} wrap align="center">
-                      <Stat
-                        value={formatMoney(data.peakDay.cost)}
-                        label="Day cost"
-                        tone="warning"
-                      />
-                      <Stat
-                        value={String(data.peakDay.events)}
-                        label="Events"
-                      />
-                      <Stat
-                        value={formatTokens(data.peakDay.tokens)}
-                        label="Tokens"
-                      />
-                      <Spacer />
-                      {data.peakHourSummary ? (
-                        <Text
-                          tone="secondary"
-                          size="small"
-                          style={{ maxWidth: 320, lineHeight: 1.45 }}
-                        >
-                          {data.peakHourSummary}
-                        </Text>
-                      ) : null}
-                    </Row>
-                    <Grid columns={2} gap={20}>
-                      <Stack gap={8}>
-                        <H3>Cost by hour (UTC)</H3>
-                        <Text tone="tertiary" size="small">
-                          Cost ($) · Hour · {data.peakDay.label} · {source}
-                        </Text>
-                        <BarChart
-                          categories={data.peakHours.map((h) => h.hour)}
-                          series={[
-                            {
-                              name: "Cost ($)",
-                              data: data.peakHours.map(
-                                (h) => Math.round(h.cost * 100) / 100,
-                              ),
-                              tone: "warning",
-                            },
-                          ]}
-                          valuePrefix="$"
-                          height={200}
-                          showValues={data.peakHours.length <= 12}
-                        />
-                      </Stack>
-                      <Stack gap={8}>
-                        <H3>Events by hour (UTC)</H3>
-                        <Text tone="tertiary" size="small">
-                          Event count · Hour · {data.peakDay.label} · {source}
-                        </Text>
-                        <BarChart
-                          categories={data.peakHours.map((h) => h.hour)}
-                          series={[
-                            {
-                              name: "Events",
-                              data: data.peakHours.map((h) => h.events),
-                            },
-                          ]}
-                          height={200}
-                          showValues={data.peakHours.length <= 12}
-                        />
-                      </Stack>
-                    </Grid>
-                  </Stack>
-                </CardBody>
-              </Card>
+              <Divider style={{ marginTop: 56, marginBottom: 48 }} />
+              <Stack gap={24}>
+                <Band
+                  kicker="04"
+                  title={`Peak · ${data.peakDay.label}`}
+                  caption={`${formatMoney(data.peakDay.cost)} · ${data.peakDay.events} events · ${formatTokens(data.peakDay.tokens)} tokens · ${data.peakShare.toFixed(0)}% of spend. Hours in UTC. Source: ${source}.`}
+                />
+                {data.peakHourSummary ? (
+                  <Text tone="secondary" style={{ maxWidth: 560, lineHeight: 1.55 }}>
+                    {data.peakHourSummary}
+                  </Text>
+                ) : null}
+                <Table
+                  framed={false}
+                  striped={false}
+                  headers={["Hour (UTC)", "Events", "Cost"]}
+                  rows={data.peakHours.map((h) => [
+                    h.hour,
+                    String(h.events),
+                    formatMoney(h.cost),
+                  ])}
+                  columnAlign={["left", "right", "right"]}
+                />
+              </Stack>
             </>
           ) : null}
 
-          <Divider />
+          <Divider style={{ marginTop: 56, marginBottom: 48 }} />
 
-          <Stack gap={16}>
-            <SectionLabel
+          <Stack gap={24}>
+            <Band
+              kicker="05"
               title="Highest-cost events"
-              caption={`Top ${data.topEvents.length} by Cost · Source: ${source} · ${range}`}
+              caption={`Top ${data.topEvents.length} by Cost. Times in UTC. Source: ${source} · ${range}.`}
             />
             <Table
-              headers={[
-                "When (UTC)",
-                "Model",
-                "Kind",
-                "Total tokens",
-                "Output",
-                "Cost",
-              ]}
+              framed={false}
+              striped={false}
+              headers={["When", "Model", "Kind", "Tokens", "Cost"]}
               rows={data.topEvents.map((r) => [
                 eventWhen(r["Date"]),
                 shortModel(r["Model"]),
                 r["Kind"],
                 formatTokens(parseNumber(r["Total Tokens"]) || 0),
-                formatTokens(parseNumber(r["Output Tokens"]) || 0),
                 formatMoney(parseNumber(r["Cost"]) || 0),
               ])}
-              columnAlign={["left", "left", "left", "right", "right", "right"]}
-              striped
+              columnAlign={["left", "left", "left", "right", "right"]}
             />
           </Stack>
 
           {data.days.length > 0 ? (
             <>
-              <Divider />
-              <Stack gap={16}>
-                <SectionLabel
-                  title="Daily breakdown"
-                  caption={`Calendar-day rollup · Source: ${source} · ${range}`}
+              <Divider style={{ marginTop: 56, marginBottom: 48 }} />
+              <Stack gap={24}>
+                <Band
+                  kicker="06"
+                  title="By day"
+                  caption={`Calendar-day rollup. Source: ${source} · ${range}.`}
                 />
                 <Table
-                  headers={["Date", "Events", "Cost", "Tokens", "Notes"]}
+                  framed={false}
+                  striped={false}
+                  headers={["Date", "Events", "Cost", "Tokens"]}
                   rows={data.days.map((d) => [
                     d.date,
                     String(d.events),
                     formatMoney(d.cost),
                     formatTokens(d.tokens),
-                    d.note,
                   ])}
-                  columnAlign={["left", "right", "right", "right", "left"]}
+                  columnAlign={["left", "right", "right", "right"]}
                   rowTone={data.days.map((d) =>
                     data.peakDay && d.date === data.peakDay.date
                       ? ("warning" as const)
                       : undefined,
                   )}
-                  striped
                 />
               </Stack>
             </>
@@ -1083,21 +848,15 @@ export default function CursorUsageOverview() {
             tone="quaternary"
             size="small"
             style={{
-              borderTop: `1px solid ${theme.stroke.tertiary}`,
-              paddingTop: 20,
-              lineHeight: 1.5,
+              borderTop: hairline,
+              marginTop: 64,
+              paddingTop: 24,
+              lineHeight: 1.55,
             }}
           >
             Totals from {source}
-            {data.peakDay
-              ? ` · Peak ${data.peakDay.label} is ${data.peakShare.toFixed(0)}% of spend`
-              : ""}
-            {data.cacheShare > 0
-              ? ` · Cache read ${data.cacheShare.toFixed(0)}% of tokens`
-              : ""}
-            {` · Avg ${formatMoney(data.avgCost, 3)}/event`}
-            {data.notes.length > 0 ? ` · ${data.notes.join("; ")}` : ""}. Run{" "}
-            npm run sync-canvas after adding usage-events-*.csv files.
+            {data.notes.length > 0 ? ` · ${data.notes.join("; ")}` : ""}. Sync
+            with `npm run sync-canvas` after adding usage-events-*.csv files.
           </Text>
         </>
       ) : null}
