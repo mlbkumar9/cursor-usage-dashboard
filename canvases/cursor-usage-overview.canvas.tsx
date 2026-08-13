@@ -74,6 +74,11 @@ type TokenMix = {
   output: number;
 };
 
+type ModelByDay = {
+  categories: string[];
+  series: { name: string; data: number[] }[];
+};
+
 type Dashboard = {
   filename: string;
   rangeLabel: string;
@@ -92,6 +97,7 @@ type Dashboard = {
   tokenMix: TokenMix;
   peakHours: HourAgg[];
   peakHourSummary: string;
+  modelByDay: ModelByDay;
   topEvents: CsvRow[];
   notes: string[];
 };
@@ -396,6 +402,17 @@ function analyze(
     }
   }
 
+  const modelByDay: ModelByDay = {
+    categories: days.map((d) => d.label),
+    series: models.map((m) => ({
+      name: shortModel(m.model),
+      data: days.map(
+        (d) =>
+          Math.round((dayModelCost.get(d.date)?.get(m.model) ?? 0) * 100) / 100,
+      ),
+    })),
+  };
+
   const topEvents = [...billed]
     .sort((a, b) => numOr0(b["Cost"]) - numOr0(a["Cost"]))
     .slice(0, 8);
@@ -430,6 +447,7 @@ function analyze(
       tokenMix,
       peakHours,
       peakHourSummary,
+      modelByDay,
       topEvents,
       notes,
     },
@@ -653,8 +671,8 @@ export default function CursorUsageOverview() {
           <Stack gap={24}>
             <Band
               kicker="01"
-              title="Daily cost"
-              caption={`Cost ($) by calendar day. Average day ${formatMoney(avgDayCost)}. Source: ${source} · ${range}.`}
+              title="Daily"
+              caption={`Cost ($) and tokens (millions) by calendar day. Average day ${formatMoney(avgDayCost)}. Source: ${source} · ${range}.`}
             />
             <LineChart
               categories={data.days.map((d) => d.label)}
@@ -673,51 +691,77 @@ export default function CursorUsageOverview() {
                 { value: avgDayCost, label: "Avg", tone: "neutral" },
               ]}
             />
+            <LineChart
+              categories={data.days.map((d) => d.label)}
+              series={[
+                {
+                  name: "Tokens (M)",
+                  data: data.days.map(
+                    (d) => Math.round((d.tokens / 1_000_000) * 100) / 100,
+                  ),
+                  tone: "neutral",
+                },
+              ]}
+              valueSuffix="M"
+              height={180}
+              fill
+              showValues={data.days.length <= 8}
+            />
+          </Stack>
+
+          <Divider style={{ marginTop: 56, marginBottom: 48 }} />
+
+          <Stack gap={24}>
+            <Band
+              kicker="02"
+              title="Models"
+              caption={`Share of ${formatMoney(data.totalCost)}. Bars are billed cost ($). Source: ${source} · ${range}.`}
+            />
+            <BarChart
+              categories={data.models.map((m) => shortModel(m.model))}
+              series={[
+                {
+                  name: "Cost ($)",
+                  data: data.models.map((m) => Math.round(m.cost * 100) / 100),
+                },
+              ]}
+              horizontal
+              valuePrefix="$"
+              height={Math.min(220, 56 + data.models.length * 36)}
+              showValues
+            />
+            {data.models.length > 1 && data.modelByDay.categories.length > 0 ? (
+              <BarChart
+                categories={data.modelByDay.categories}
+                series={data.modelByDay.series}
+                stacked
+                valuePrefix="$"
+                height={220}
+              />
+            ) : null}
+            <Table
+              framed={false}
+              striped={false}
+              headers={["Model", "Events", "Cost", "$/1M"]}
+              rows={data.models.map((m) => [
+                shortModel(m.model),
+                String(m.events),
+                formatMoney(m.cost),
+                formatMoney(m.costPerM),
+              ])}
+              columnAlign={["left", "right", "right", "right"]}
+            />
+            {leadModel && leanModel ? (
+              <Text tone="tertiary" size="small" style={{ lineHeight: 1.5 }}>
+                {shortModel(leanModel.model)} is the most token-efficient at{" "}
+                {formatMoney(leanModel.costPerM)} / 1M.
+              </Text>
+            ) : null}
           </Stack>
 
           <Divider style={{ marginTop: 56, marginBottom: 48 }} />
 
           <Grid columns={2} gap={48} align="start">
-            <Stack gap={20}>
-              <Band
-                kicker="02"
-                title="Models"
-                caption={`Share of ${formatMoney(data.totalCost)}. Bars are cost ($).`}
-              />
-              <BarChart
-                categories={data.models.map((m) => shortModel(m.model))}
-                series={[
-                  {
-                    name: "Cost ($)",
-                    data: data.models.map((m) => Math.round(m.cost * 100) / 100),
-                    tone: "neutral",
-                  },
-                ]}
-                horizontal
-                valuePrefix="$"
-                height={Math.min(220, 56 + data.models.length * 36)}
-                showValues
-              />
-              <Table
-                framed={false}
-                striped={false}
-                headers={["Model", "Events", "Cost", "$/1M"]}
-                rows={data.models.map((m) => [
-                  shortModel(m.model),
-                  String(m.events),
-                  formatMoney(m.cost),
-                  formatMoney(m.costPerM),
-                ])}
-                columnAlign={["left", "right", "right", "right"]}
-              />
-              {leadModel && leanModel ? (
-                <Text tone="tertiary" size="small" style={{ lineHeight: 1.5 }}>
-                  {shortModel(leanModel.model)} is the most token-efficient at{" "}
-                  {formatMoney(leanModel.costPerM)} / 1M.
-                </Text>
-              ) : null}
-            </Stack>
-
             <Stack gap={20}>
               <Band
                 kicker="03"
@@ -760,6 +804,32 @@ export default function CursorUsageOverview() {
                 columnAlign={["left", "right", "right"]}
               />
             </Stack>
+
+            {data.models.length > 1 ? (
+              <Stack gap={20}>
+                <Band
+                  kicker="04"
+                  title="Efficiency"
+                  caption="Billed cost per 1 million tokens, by model. Lower is leaner."
+                />
+                <BarChart
+                  categories={data.models.map((m) => shortModel(m.model))}
+                  series={[
+                    {
+                      name: "Cost per 1M tokens ($)",
+                      data: data.models.map(
+                        (m) => Math.round(m.costPerM * 100) / 100,
+                      ),
+                      tone: "neutral",
+                    },
+                  ]}
+                  horizontal
+                  valuePrefix="$"
+                  height={Math.min(200, 56 + data.models.length * 36)}
+                  showValues
+                />
+              </Stack>
+            ) : null}
           </Grid>
 
           {data.peakDay && data.peakHours.length > 0 ? (
@@ -767,25 +837,67 @@ export default function CursorUsageOverview() {
               <Divider style={{ marginTop: 56, marginBottom: 48 }} />
               <Stack gap={24}>
                 <Band
-                  kicker="04"
+                  kicker="05"
                   title={`Peak · ${data.peakDay.label}`}
-                  caption={`${formatMoney(data.peakDay.cost)} · ${data.peakDay.events} events · ${formatTokens(data.peakDay.tokens)} tokens · ${data.peakShare.toFixed(0)}% of spend. Hours in UTC. Source: ${source}.`}
+                  caption={`${formatMoney(data.peakDay.cost)} · ${data.peakDay.events} events · ${formatTokens(data.peakDay.tokens)} tokens · ${data.peakShare.toFixed(0)}% of spend. Hourly cost ($) in UTC. Source: ${source}.`}
                 />
                 {data.peakHourSummary ? (
                   <Text tone="secondary" style={{ maxWidth: 560, lineHeight: 1.55 }}>
                     {data.peakHourSummary}
                   </Text>
                 ) : null}
+                <BarChart
+                  categories={data.peakHours.map((h) => h.hour)}
+                  series={[
+                    {
+                      name: "Cost ($)",
+                      data: data.peakHours.map(
+                        (h) => Math.round(h.cost * 100) / 100,
+                      ),
+                      tone: "warning",
+                    },
+                  ]}
+                  valuePrefix="$"
+                  height={200}
+                  showValues={data.peakHours.length <= 8}
+                />
+              </Stack>
+            </>
+          ) : null}
+
+          {data.kinds.length > 1 ? (
+            <>
+              <Divider style={{ marginTop: 56, marginBottom: 48 }} />
+              <Stack gap={24}>
+                <Band
+                  kicker="06"
+                  title="Kind"
+                  caption={`Express vs free (and other billed kinds). Bars are cost ($). Source: ${source} · ${range}.`}
+                />
+                <BarChart
+                  categories={data.kinds.map((k) => k.kind)}
+                  series={[
+                    {
+                      name: "Cost ($)",
+                      data: data.kinds.map((k) => Math.round(k.cost * 100) / 100),
+                    },
+                  ]}
+                  horizontal
+                  valuePrefix="$"
+                  height={Math.min(160, 56 + data.kinds.length * 36)}
+                  showValues
+                />
                 <Table
                   framed={false}
                   striped={false}
-                  headers={["Hour (UTC)", "Events", "Cost"]}
-                  rows={data.peakHours.map((h) => [
-                    h.hour,
-                    String(h.events),
-                    formatMoney(h.cost),
+                  headers={["Kind", "Events", "Cost", "Share"]}
+                  rows={data.kinds.map((k) => [
+                    k.kind,
+                    String(k.events),
+                    formatMoney(k.cost),
+                    `${k.share.toFixed(0)}%`,
                   ])}
-                  columnAlign={["left", "right", "right"]}
+                  columnAlign={["left", "right", "right", "right"]}
                 />
               </Stack>
             </>
@@ -795,7 +907,7 @@ export default function CursorUsageOverview() {
 
           <Stack gap={24}>
             <Band
-              kicker="05"
+              kicker="07"
               title="Highest-cost events"
               caption={`Top ${data.topEvents.length} by Cost. Times in UTC. Source: ${source} · ${range}.`}
             />
@@ -819,7 +931,7 @@ export default function CursorUsageOverview() {
               <Divider style={{ marginTop: 56, marginBottom: 48 }} />
               <Stack gap={24}>
                 <Band
-                  kicker="06"
+                  kicker="08"
                   title="By day"
                   caption={`Calendar-day rollup. Source: ${source} · ${range}.`}
                 />
